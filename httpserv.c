@@ -1,23 +1,31 @@
 #include <arpa/inet.h>
+#include <asm-generic/socket.h>
 #include <netinet/in.h>
 #include <stdint.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <sys/socket.h>
+
 
 #define BACKLOG     20
 
 void initialize_hints(struct addrinfo *hints);
 int get_bound_socket(struct addrinfo *servinfo);
+void *get_in_addr(struct sockaddr *sa);
 
 void start_server(char *port) {
     int status;
     char ipstr[INET6_ADDRSTRLEN];
     struct addrinfo hints;
     struct addrinfo *servinfo, *p;
-    int sockfd;
+    struct sockaddr_storage their_addr;
+    socklen_t their_addr_size;
+    int sockfd, accepted_fd;
+    int buflen = 1024;
+    char buf[buflen];
 
     initialize_hints(&hints);
 
@@ -41,19 +49,46 @@ void start_server(char *port) {
     }
 
     while(1) {
-        
-    }
+        their_addr_size = sizeof their_addr;
+        accepted_fd = accept(sockfd, (struct sockaddr *) &their_addr, &their_addr_size);
 
+        if (accepted_fd == -1) {
+            perror("accept");
+            continue;
+        }
+
+        inet_ntop(AF_INET, &their_addr, ipstr, sizeof(ipstr));
+        printf("server: got connection from %s\n", ipstr);
+
+        recv(accepted_fd, buf, buflen, 0);
+        printf("received: %s\n", buf);
+
+        close(accepted_fd);
+    }
+}
+
+void *get_in_addr(struct sockaddr *sa) {
+    if (sa->sa_family == AF_INET) {
+        return &(((struct sockaddr_in *)sa)->sin_addr);
+    } else {
+        return &(((struct sockaddr_in6 *)sa)->sin6_addr);
+    }
 }
 
 int get_bound_socket(struct addrinfo *servinfo) {
     struct addrinfo *p;
+    int yes = 1;
     int sockfd;
 
     for (p = servinfo; p != NULL; p = p->ai_next) {
         sockfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
         if (sockfd == -1) {
             perror("server: socket");
+            continue;
+        }
+
+        if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
+            perror("setsockopt");
             continue;
         }
 
